@@ -145,6 +145,7 @@ class StepperDisk
 
     void Update(long currStepSize, long waitToTurn, boolean trialStarting)
     {
+      long timeFromLoad;
       if (trialStarting == true) // start of a new trial
       {
         // set goal distance for motor to move on this trial
@@ -185,14 +186,11 @@ class StepperDisk
           {
             if (currStepSize == 1) // this is the loader wheel
             {
-              if (countLoaderSteps == 0) // have not yet started rest of turn for loader
+              if (countLoaderSteps<6) // haven't yet finished load
               {
-                startOfLoad=millis();
-              } else if (countLoaderSteps<6) // haven't yet finished load
-              {
-                if ((millis()-startOfLoad)>500) // 500 ms delay between loader steps
-                {
-                  startOfLoad=millis();
+                timeFromLoad = millis() - startOfLoad;
+                if (timeFromLoad > 500) // 500 ms delay between loader steps
+                { 
                   if (goesForward == true)
                   {
                     myStepper->step(1, FORWARD, INTERLEAVE);
@@ -201,7 +199,8 @@ class StepperDisk
                     myStepper->step(1, BACKWARD, INTERLEAVE);
                   }
                   countLoaderSteps = countLoaderSteps+1;
-                  if (countLoaderSteps > 6)
+                  startOfLoad=millis();
+                  if (countLoaderSteps == 6)
                   {
                     countLoaderSteps = 0; // reset to 0
                     accomplishedTurn = true; // finished loader turn
@@ -225,15 +224,26 @@ class FlashOnce
     unsigned long previousMillis; // stores last time LED was updated
     boolean didOnce = false; // whether already flashed once
     int writeCode;
+    int notInverted = 1; // 1 if HIGH to LED turns LED on, 0 if LOW to LED turns LED on
+    int lowVal = LOW;
+    int highVal = HIGH;
 
   public:
-    FlashOnce(int pin, long on, long off, int eventLabel)
+    FlashOnce(int pin, long on, long off, int eventLabel, int highIsHigh)
     {
       ledPin = pin;
       pinMode(ledPin, OUTPUT);
       OnTime = on;
       OffTime = off;
-      ledState = HIGH; // start off
+      notInverted = highIsHigh; 
+      if (notInverted == 1) {
+        highVal = HIGH;
+        lowVal = LOW;
+      } else {
+        highVal = LOW;
+        lowVal = HIGH;
+      }
+      ledState = lowVal; // start off
       digitalWrite(ledPin, ledState); // Update the actual LED
       previousMillis = 0;
       writeCode = eventLabel;
@@ -247,13 +257,13 @@ class FlashOnce
         // re-initialize so can turn on again
         didOnce = false;
         // check that LED is off
-        ledState = HIGH;
+        ledState = lowVal;
         digitalWrite(ledPin, ledState); // Update the actual LED
         previousMillis = currentMillis;
       }
-      if ((ledState == LOW) && (currentMillis - previousMillis >= OnTime))
+      if ((ledState == highVal) && (currentMillis - previousMillis >= OnTime))
       {
-        ledState = HIGH; // Turn it off
+        ledState = lowVal; // Turn it off
         previousMillis = currentMillis; // Remember the time
         digitalWrite(ledPin, ledState); // Update the actual LED
         String outString = "";
@@ -265,9 +275,9 @@ class FlashOnce
         //      outString = serialStringOut(time(), outString);
         outSD.Update(outString);
       }
-      else if ((ledState == HIGH) && (currentMillis - previousMillis >= OffTime) && (didOnce == false)) // Haven't yet turned LED on
+      else if ((ledState == lowVal) && (currentMillis - previousMillis >= OffTime) && (didOnce == false)) // Haven't yet turned LED on
       {
-        ledState = LOW; // Turn it on
+        ledState = highVal; // Turn it on
         previousMillis = currentMillis; // Remember the time
         if (doFlash == 1)
         {
@@ -438,7 +448,7 @@ const int cuePin = 6; // digital output pin that controls cue
 const int optoPin = 3; // digital output pin that controls opto for silencing 
 const long cueDuration = 250; // cue on duration in ms
 const long cueDelay = 1500; // delay from trial start until cue turns on in ms
-const long optoDuration = 1500; // opto on duration in ms
+const long optoDuration = 2000; // opto on duration in ms
 const long optoDelay = 1500; // delay from trial start until opto turns on in ms
 const int distractorPin = 2; // digital output pin that controls distractor
 const int emptyPin = 4; // an analog input pin that is not connected (for random seed initialization)
@@ -455,7 +465,7 @@ const long minITI = 25000;
 const long maxITI = 35000;
 const long pelletsDelay = 0; // in ms
 const long loaderDelay = 5000; // in ms
-const long probOfOpto = 0.3; // turn on opto in this fraction of trials
+const int probOfOpto = 30; // turn on opto in this percent of trials
 
 long stepperMotorRPM = 100; // rpm
 long loaderMotorRPM = 20; // rpm
@@ -469,8 +479,8 @@ int optoThisTime = 0;
 
 // probabilityDistractor for FlashRandom should match ratio of cueDuration to expected value of [randomMin, randomMax]
 FlashRandom distractor(distractorPin, emptyPin, randomMin, randomMax, distractorWriteCode, cueDelay + cueDuration, probabilityDistractor, cueDuration);
-FlashOnce cue(cuePin, cueDuration, cueDelay, cueWriteCode);
-FlashOnce opto(optoPin, optoDuration, optoDelay, optoWriteCode);
+FlashOnce cue(cuePin, cueDuration, cueDelay, cueWriteCode, 1);
+FlashOnce opto(optoPin, optoDuration, optoDelay, optoWriteCode, 1);
 StepperDisk loader(stepsForStepper, loaderN, loaderWriteCode, true);
 StepperDisk pellets(stepsForStepper, pelletsN, pelletsWriteCode, true);
 
@@ -481,6 +491,7 @@ void setup()
   AFMS.begin();
   loader.SetSpeed(loaderMotorRPM);
   pellets.SetSpeed(stepperMotorRPM);
+  randomSeed(analogRead(emptyPin));
 }
 
 void loop()
@@ -514,7 +525,9 @@ void loop()
   } else if (trialState == HIGH)
   {
     trialIsStarting = true;
-    if (random(0, 1) <= probOfOpto)
+    int randnum = random(0, 100);
+    Serial.println(randnum);
+    if (randnum <= probOfOpto)
     {
       optoThisTime = 1;
     } else {

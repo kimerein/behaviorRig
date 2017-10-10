@@ -145,6 +145,7 @@ class StepperDisk
 
     void Update(long currStepSize, long waitToTurn, boolean trialStarting)
     {
+      long timeFromLoad; 
       if (trialStarting == true) // start of a new trial
       {
         // set goal distance for motor to move on this trial
@@ -185,14 +186,11 @@ class StepperDisk
           {
             if (currStepSize == 1) // this is the loader wheel
             {
-              if (countLoaderSteps == 0) // have not yet started rest of turn for loader
+              if (countLoaderSteps<6) // haven't yet finished load
               {
-                startOfLoad=millis();
-              } else if (countLoaderSteps<6) // haven't yet finished load
-              {
-                if ((millis()-startOfLoad)>500) // 500 ms delay between loader steps
-                {
-                  startOfLoad=millis();
+                timeFromLoad = millis() - startOfLoad;
+                if (timeFromLoad > 500) // 500 ms delay between loader steps
+                { 
                   if (goesForward == true)
                   {
                     myStepper->step(1, FORWARD, INTERLEAVE);
@@ -201,7 +199,8 @@ class StepperDisk
                     myStepper->step(1, BACKWARD, INTERLEAVE);
                   }
                   countLoaderSteps = countLoaderSteps+1;
-                  if (countLoaderSteps > 6)
+                  startOfLoad=millis();
+                  if (countLoaderSteps == 6)
                   {
                     countLoaderSteps = 0; // reset to 0
                     accomplishedTurn = true; // finished loader turn
@@ -233,7 +232,7 @@ class FlashOnce
       pinMode(ledPin, OUTPUT);
       OnTime = on;
       OffTime = off;
-      ledState = HIGH; // start off
+      ledState = LOW; // start off
       digitalWrite(ledPin, ledState); // Update the actual LED
       previousMillis = 0;
       writeCode = eventLabel;
@@ -247,13 +246,13 @@ class FlashOnce
         // re-initialize so can turn on again
         didOnce = false;
         // check that LED is off
-        ledState = HIGH;
+        ledState = LOW;
         digitalWrite(ledPin, ledState); // Update the actual LED
         previousMillis = currentMillis;
       }
-      if ((ledState == LOW) && (currentMillis - previousMillis >= OnTime))
+      if ((ledState == HIGH) && (currentMillis - previousMillis >= OnTime))
       {
-        ledState = HIGH; // Turn it off
+        ledState = LOW; // Turn it off
         previousMillis = currentMillis; // Remember the time
         digitalWrite(ledPin, ledState); // Update the actual LED
         String outString = "";
@@ -265,9 +264,9 @@ class FlashOnce
         //      outString = serialStringOut(time(), outString);
         outSD.Update(outString);
       }
-      else if ((ledState == HIGH) && (currentMillis - previousMillis >= OffTime) && (didOnce == false)) // Haven't yet turned LED on
+      else if ((ledState == LOW) && (currentMillis - previousMillis >= OffTime) && (didOnce == false)) // Haven't yet turned LED on
       {
-        ledState = LOW; // Turn it on
+        ledState = HIGH; // Turn it on
         previousMillis = currentMillis; // Remember the time
         digitalWrite(ledPin, ledState); // Update the actual LED
         String outString = "";
@@ -466,6 +465,7 @@ void setup()
   AFMS.begin();
   loader.SetSpeed(loaderMotorRPM);
   pellets.SetSpeed(stepperMotorRPM);
+  randomSeed(analogRead(emptyPin));
 }
 
 void loop()
