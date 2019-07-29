@@ -1,9 +1,11 @@
 
+
 #include <Wire.h>
 #include <Adafruit_MotorShield.h>
 #include "utility/Adafruit_MS_PWMServoDriver.h"
 #include <SPI.h>
 #include <SD.h>
+#include <EEPROM.h>
 
 const long day = 86400000; // 86400000 milliseconds in a day
 const long hour = 3600000; // 3600000 milliseconds in an hour
@@ -145,7 +147,7 @@ class StepperDisk
 
     void Update(long currStepSize, long waitToTurn, boolean trialStarting, boolean doMove)
     {
-      long timeFromLoad;
+      long timeFromLoad; 
       if (doMove == false) // don't move wheel
       {
         return;
@@ -190,11 +192,11 @@ class StepperDisk
           {
             if (currStepSize == 1) // this is the loader wheel
             {
-              if (countLoaderSteps < 6) // haven't yet finished load
+              if (countLoaderSteps<6) // haven't yet finished load
               {
                 timeFromLoad = millis() - startOfLoad;
                 if (timeFromLoad > 500) // 500 ms delay between loader steps
-                {
+                { 
                   if (goesForward == true)
                   {
                     myStepper->step(1, FORWARD, INTERLEAVE);
@@ -202,8 +204,8 @@ class StepperDisk
                   {
                     myStepper->step(1, BACKWARD, INTERLEAVE);
                   }
-                  countLoaderSteps = countLoaderSteps + 1;
-                  startOfLoad = millis();
+                  countLoaderSteps = countLoaderSteps+1;
+                  startOfLoad=millis();
                   if (countLoaderSteps == 6)
                   {
                     countLoaderSteps = 0; // reset to 0
@@ -211,7 +213,7 @@ class StepperDisk
                   }
                 }
               }
-            }
+            } 
           }
         }
       }
@@ -310,7 +312,7 @@ class FlashRandom
     long newrand;
 
   public:
-    FlashRandom(int pin, int unconnectedPin, int minRand, int maxRand, int eventLabel, long off, int distractorP, long cueDuration)
+    FlashRandom(int pin, int minRand, int maxRand, int eventLabel, long off, int distractorP, long cueDuration)
     {
       ledPin = pin;
       pinMode(ledPin, OUTPUT);
@@ -334,7 +336,7 @@ class FlashRandom
       if (trialStarting == true)
       {
         // turn off LED
-        ledState = LOW;
+        ledState = LOW; 
         digitalWrite(ledPin, ledState);
         timeAtTurn = currentMillis;
         String outString = "";
@@ -419,7 +421,7 @@ class AnalogSensor
     void Update()
     {
       unsigned long currentMillis = millis();
-      if (currentMillis - previousMillis > updatePeriod)
+      if (currentMillis - previousMillis > updatePeriod) 
       {
         // write sensor value
         String outString = "";
@@ -477,56 +479,81 @@ class DigTrigger
 {
 
     int camPin;
-    long trigDur;
+    unsigned long trigDur;
     int trigState; // trigger state
-    // long recDur;
-    long offTime; // AJ
-    unsigned long trialStartMillis; // AJ
+    unsigned long startAcquiringDelay; // delay after trial start to begin camera acquisition
+    unsigned long acquireUntil; // acquire until this many seconds after trial start 
+    long offTime;
+    unsigned long trialStartMillis; // when the trial started in ms
     unsigned long previousMillis; // stores last time triggered
 
   public:
-    DigTrigger(int cPin, long triggerDur, long trigOffTime)
+    DigTrigger(int cPin, unsigned long triggerDur, long trigOffTime, unsigned long startAcq, unsigned long acqUntil)
     {
       camPin = cPin;
       trigDur = triggerDur;
-      offTime = trigOffTime; // AJ
+      offTime = trigOffTime; 
+      startAcquiringDelay = startAcq;
+      acquireUntil = acqUntil;
       pinMode(camPin, OUTPUT);
-      trigState = LOW; // start off
+      trigState = HIGH; // start off
       digitalWrite(camPin, trigState); // Update the trigger pin
       previousMillis = 0;
-
     }
 
     void Update(boolean trialStarting, boolean turnCamOn)
     {
       unsigned long currentMillis = millis();
-      if ((trigState == HIGH) && (currentMillis - previousMillis >= trigDur)) // only want trigger on for short duration
-      {
-        trigState = LOW;
-        digitalWrite(camPin, trigState);
-        previousMillis = currentMillis;
-      } else if ((trigState == LOW) && (trialStarting == true) && (turnCamOn == true)) // beginning of a trial; turn on trigger
+      if ((trigState == LOW) && (currentMillis - previousMillis >= trigDur)) // only want trigger on for trigDur duration
       {
         trigState = HIGH;
         digitalWrite(camPin, trigState);
         previousMillis = currentMillis;
-        trialStartMillis = currentMillis;
-      } else if ((trigState == LOW) && (currentMillis - previousMillis >= offTime))
+      } else if ((trialStarting == true) && (turnCamOn == true)) // beginning of a trial
       {
-        if (currentMillis - trialStartMillis <= 9000) { // still within the camera recording time, but ~after collecting 255 frames, so trigger again
-          trigState = HIGH;
-          digitalWrite(camPin, trigState);
-        } else { // outside of the trial now, thus you want some time for the frames to stop buffering and save before the next trial
-          trigState = LOW;
-          digitalWrite(camPin, trigState);
-          previousMillis = currentMillis;
-        }
+        previousMillis = currentMillis;
+        trialStartMillis = currentMillis;
+      } else if ((trigState == HIGH) && (currentMillis - trialStartMillis > startAcquiringDelay) && (currentMillis - previousMillis >= offTime) && (currentMillis - trialStartMillis <= acquireUntil)) // turn on camera acquisition
+      {
+        trigState = LOW;
+        digitalWrite(camPin, trigState);
+        previousMillis = currentMillis;
       }
     }
 };
 
+void reseedRandom( void )
+{
+  static const uint32_t HappyPrime = 937;
+  union
+  {
+    uint32_t i;
+    uint8_t b[4];
+  }
+  raw;
+  int8_t i;
+  unsigned int seed;
+  
+  for ( i=0; i < sizeof(raw.b); ++i )
+  {
+    raw.b[i] = EEPROM.read( i );
+  }
 
+  do
+  {
+    raw.i += HappyPrime;
+    seed = raw.i & 0x7FFFFFFF;
+  }
+  while ( (seed < 1) || (seed > 2147483646) );
 
+  Serial.println(seed);
+  randomSeed( seed );  
+
+  for ( i=0; i < sizeof(raw.b); ++i )
+  {
+    EEPROM.write( i, raw.b[i] );
+  }
+};
 
 // Declare constants
 const int loaderN = 1;
@@ -535,15 +562,16 @@ const uint8_t motorShieldAddress = 0x60;
 const int stepsForStepper = 200;
 const int cuePin = 3; // digital output pin that controls cue
 const int optoPin = 6; // digital output pin that controls opto for silencing
-const int cameraPin = 5; // digital output pin that sends trigger to cameras
+const int cameraPin = 2; // digital output pin that sends trigger to cameras
 const long cameraTriggerDur = 2; // ms duration of camera digital output trigger
 const long cameraTriggerOffTime = 2; // 2000; //2; // ms duration of time between camera triggers
+const long startCamAcq = 500; // ms after trial onset to begin camera data acquisition
+const long endCamAcq = 9000; // ms after trial onset to end camera data acquisition 
 const long cueDuration = 250; // cue on duration in ms
 const long cueDelay = 1500; // delay from trial start until cue turns on in ms
 const long optoDuration = 1000; // opto on duration in ms
-const long optoDelay = 1490; // delay from trial start until opto turns on in ms
-const int distractorPin = 2; // digital output pin that controls distractor
-const int emptyPin = 4; // an analog input pin that is not connected (for random seed initialization)
+const long optoDelay = 1495; // delay from trial start until opto turns on in ms
+const int distractorPin = 5; // digital output pin that controls distractor
 const int randomMin = 1000; // in ms
 const int randomMax = 10000; // in ms
 const int probabilityDistractor = 2; // probability that distractor will be on versus off
@@ -555,13 +583,14 @@ const int cueWriteCode = 4;
 const int distractorWriteCode = 5;
 const int optoWriteCode = 3;
 const long minITI = 9050;
-const long maxITI = 13000;
+const long maxITI = 13000; 
 const long pelletsDelay = 0; // in ms
 const long loaderDelay = 3250; // in ms
 const unsigned long interlockUpdate = 5000; // in ms, how often to write interlock value
-const int probOfOpto = 30; // turn on opto in this percent of trials
-const int maxConsecutiveLoad = 4; // max number of consecutive trials for pellet loading, to prevent cameras maxing out
-const int probOfTrialBetweenCues = 40; // in %, the probability of wheel turning without a pellet in between cues (i.e., a time gap between cues)
+const int maxConsecutiveLoad = 11; // max number of consecutive trials for pellet loading, to prevent cameras maxing out
+const int probOfOpto = 50; // DON'T USE -- THIS IS BATCH OPTO
+// modify next line -- start at 0, increase by increments of 5
+const int fractionPelletsNotLoaded = 50; // fraction of wheel turns in which pellet is NOT presented 
 
 long stepperMotorRPM = 100; // rpm
 long loaderMotorRPM = 20; // rpm
@@ -571,22 +600,25 @@ long ITI = 0;
 unsigned long prevMs = 0;
 unsigned long currMs = 0;
 int nTrials = 0;
-int isLoaded[6] = {0, 0, 0, 0, 0, 0}; // whether pellet is loaded in each hole of pellet presenter wheel
-int trialCount = 0; // count how many trials since last cue
+int isLoaded[6]={0,0,0,0,0,0}; // whether pellet is loaded in each hole of pellet presenter wheel
+int trialCount = 0; // count how many trials since last cue 
 int nTrialsBetweenCues = 0; // whether to turn wheel 2 or 3 times between cues
 boolean doLoad = false; // whether to load pellet this trial
 boolean pelletToMouse = false; // if pellet is available to mouse on this trial
-int optoThisTime = 0;
 int consecLoaded = 0;
+boolean optoThisTime = false;
+boolean inOptoBatch = false; // whether currently in a "with opto" batch of trials
+int currBatchLength = 3; // length of current opto or no opto batch
+int currBatchTrial = 0; // nth trial in batch of trials
 
 // probabilityDistractor for FlashRandom should match ratio of cueDuration to expected value of [randomMin, randomMax]
-FlashRandom distractor(distractorPin, emptyPin, randomMin, randomMax, distractorWriteCode, cueDelay + cueDuration, probabilityDistractor, cueDuration);
+FlashRandom distractor(distractorPin, randomMin, randomMax, distractorWriteCode, cueDelay + cueDuration, probabilityDistractor, cueDuration);
 FlashOnce cue(cuePin, cueDuration, cueDelay, cueWriteCode);
 FlashOnce opto(optoPin, optoDuration, optoDelay, optoWriteCode);
 StepperDisk loader(stepsForStepper, loaderN, loaderWriteCode, true);
 StepperDisk pellets(stepsForStepper, pelletsN, pelletsWriteCode, true);
 AnalogSensor interlock(A0, interlockWriteCode, interlockUpdate);
-DigTrigger cameras(cameraPin, cameraTriggerDur, cameraTriggerOffTime);
+DigTrigger cameras(cameraPin, cameraTriggerDur, cameraTriggerOffTime, startCamAcq, endCamAcq);
 
 void setup()
 {
@@ -595,7 +627,7 @@ void setup()
   AFMS.begin();
   loader.SetSpeed(loaderMotorRPM);
   pellets.SetSpeed(stepperMotorRPM);
-  randomSeed(analogRead(emptyPin));
+  reseedRandom();
 }
 
 void loop()
@@ -623,11 +655,10 @@ void loop()
     {
       // choose next trial interval between cues
       int randval = random(1, 100);
-      if ((consecLoaded >= maxConsecutiveLoad-1) || (randval < probOfTrialBetweenCues))
-      {
-        nTrialsBetweenCues = 1;
-      } else {
+      if ((consecLoaded < maxConsecutiveLoad-1) && (randval > fractionPelletsNotLoaded)) {
         nTrialsBetweenCues = 0;
+      } else {
+        nTrialsBetweenCues = 1;
       }
       trialCount = 0;
       // this is a load trial
@@ -643,7 +674,7 @@ void loop()
     // update pellet buffer
     int i;
     for (i = 5; i >= 1; i = i - 1) {
-      isLoaded[i] = isLoaded[i - 1];
+      isLoaded[i] = isLoaded[i-1];
     }
     if (doLoad == true) {
       isLoaded[0] = 1; // 1 if pellet is loaded this trial
@@ -670,19 +701,53 @@ void loop()
   } else if (trialState == HIGH)
   {
     trialIsStarting = true;
-    int randnum = random(0, 100);
-    if (randnum <= probOfOpto)
-    {
-      optoThisTime = 1;
-    } else {
-      optoThisTime = 0;
+    if (pelletToMouse == true) { // wheel turn w cue (trial starts)
+      if (currBatchTrial < currBatchLength)
+      {
+        // still finishing this batch
+        currBatchTrial = currBatchTrial + 1;
+      } else {
+        // start new batch
+        currBatchTrial = 0;
+        // alternate between opto and no opto batches
+        if (inOptoBatch == false)
+        {
+          // switch to opto batch
+          inOptoBatch = true;
+        } else {
+          // switch to no opto batch
+          inOptoBatch = false;
+        }
+        // choose new batch length
+        int randnum = random(1, 4);
+        if (randnum == 1) {
+          currBatchLength = 1; // CHANGE THIS!
+        } 
+        if (randnum == 2) {
+          currBatchLength = 3; // CHANGE THIS!
+        }
+        if (randnum == 3) {
+          currBatchLength = 6; // CHANGE THIS!
+        }
+      }
+      if (inOptoBatch == true)
+      {
+        optoThisTime = true;
+      } else {
+        optoThisTime = false;
+      }
     }
   }
+  cameras.Update(trialIsStarting, pelletToMouse); // want to trigger camera on when there's a pellet being presented (i.e., real trial), trigger off after as long as possible
   loader.Update(1, loaderDelay, trialIsStarting, doLoad);
+  cameras.Update(trialIsStarting, pelletToMouse); 
   pellets.Update(20, pelletsDelay, trialIsStarting, true);
+  cameras.Update(trialIsStarting, pelletToMouse); 
+  opto.Update(trialIsStarting, (pelletToMouse && optoThisTime)); // only turn on opto in probOfOpto trials 
+  cameras.Update(trialIsStarting, pelletToMouse); 
   cue.Update(trialIsStarting, pelletToMouse);
-  opto.Update(trialIsStarting, (pelletToMouse && optoThisTime)); // only turn on opto in probOfOpto trials
+  cameras.Update(trialIsStarting, pelletToMouse); 
   distractor.Update(trialIsStarting);
   interlock.Update();
-  cameras.Update(trialIsStarting, pelletToMouse); // want to trigger cameras on when there's a pellet being presented (i.e., real trial), trigger off after as long as possible
+  cameras.Update(trialIsStarting, pelletToMouse); 
 }
